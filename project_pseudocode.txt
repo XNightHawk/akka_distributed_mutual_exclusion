@@ -1,0 +1,146 @@
+int holder
+bool inside_cs 
+List<int> request_list
+List<ActorRef> neighbors
+int my_id
+recovery_info = Map<Integer, Pair<Integer, Boolean>>
+
+constructor(my_id, neighbors):
+	my_id = my_id
+	neighbors = neighbors
+	holder = -1
+	inside_cs = false
+	request_list = []
+	recovery_info = {}
+	
+	ensure message broker is in init mode and discards correct messages
+
+onTokenInject():
+	holder = my_id
+	foreach neighbor
+		send INIT to neighbor
+	exit message broker init mode and work normally
+
+onInit():
+	holder = getSender()
+	foreach neighbor
+		if neighbor != getSender()
+			send INIT to neighbor
+
+	exit message broker init mode and work normally
+
+onRequest():
+	requester = getSender()
+	assert(! requester in request_list) #Otherwise it means we had duplicate request which is bad
+
+	request_list.append(requester)
+
+	#Must forward the request to the holder	or satisfy it if I am the holder and not in cs
+	if len(request_list) == 0:	
+		if inside_cs:
+			request_list.append(requester) #Put in the list, as soon as I exit I will grant it
+		elif holder == my_id:
+			send PRIVILEGE(False) to requester #Grant the privilege and say I don't require token back because I have no other pending requests
+			holder = requester
+		else:
+			request_list.append(requester)
+			send REQUEST to holder #Request token on behalf of requester to my holder
+	else:
+		request_list.append(requester) #Put in the list, but I already requested privilege before, so don't send a duplicate request
+
+giveAccessToFirst():
+	first_requester = request_list.pop()
+		if first_requester == my_id:
+			send EXIT_CS message to myself after X time
+			inside_cs = true
+		else:
+			need_privilege_back = not request_list.isEmpty()
+			send PRIVILEGE(need_privilege_back) to first_requester #Send a privilege to the node to serve and ask it back if I have other requests.
+			holder = first_requester
+
+onPrivilege():
+	assert(len(requests) > 0)
+	holder = my_id
+	
+	giveAccessToFirst()
+	
+
+onExitCS():
+	inside_cs = false
+	
+	if len(requests) > 0:
+		giveAccessToFirst()
+
+onCrashBegin():
+	if inside_cs:
+		log warning and ignore crash request
+	else:
+		holder = -1
+		request_list = []
+		recovery_info = {}
+		foreach neighbor:
+			ask broker not to drop anything from neighbor
+
+onCrashEnd():
+	foreach neighbor:
+		ask broker to allow only RECOVERY_INFO_RESPONSE from neighbor
+		send RECOVERY_INFO_REQUEST to neighbor
+
+onRecoveryInfoRequest():
+	send RECOVERY_INFO_RESPONSE(holder, not request_list.isEmpty()) to getSender() #Tells my holder and whether I have some request, if my holder is not the requesting node, the second boolean field is useless.
+
+decideHolder():
+	if all holders in recovery info == my_id:
+		holder = my_id
+	else:
+		holder = the one that differs
+
+onRecoveryInfoResponse():
+	sender = getSender()
+	insert sender, his holder and whether he has requests into the recovery_info structure
+	
+	ask broker to queue for later all messages coming from sender
+
+	#I have a response from every neighbor	
+	if len(recovery_info) == len(neighbors):
+
+		#Sets the correct holder
+		decideHolder()
+		foreach neighbor that has me as holder:
+			if neighbor has requests:
+				request_list.append(neighbor)
+
+		ask broker to resume normally
+
+		#posso essere holder e avere delle richieste adesso? SI! Cio' puo' accadere se sono crashato mentre il token era su un link diretto verso di me. E' l'unico caso in cui devo fare qualche azione, altrimenti posso aspettare il prossimo messaggio
+		if holder == my_id and len(request_list) > 0:
+			giveAccessToFirst()
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
