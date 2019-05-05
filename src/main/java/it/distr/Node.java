@@ -1,10 +1,8 @@
 package it.distr;
-import akka.actor.Actor;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
 import akka.actor.Props;
-import akka.dispatch.Recover;
-import com.sun.corba.se.pept.broker.Broker;
+import it.distr.utils.Logger;
 import it.distr.utils.Tuple;
 import scala.concurrent.duration.Duration;
 
@@ -28,9 +26,12 @@ public class Node extends AbstractActor {
   private Map<Integer, Tuple<Integer, Boolean>> recovery_info = new HashMap<>();
 
   private MessageBroker broker;
+  private Logger logger;
 
   public Node(int id) {
     this.myId = id;
+    logger = new Logger(myId);
+
     //TODO: neighbor initialization via message
     holder = -1;
     inside_cs = false;
@@ -200,7 +201,8 @@ public class Node extends AbstractActor {
 
   public void onCrashBegin(CrashBegin message, ActorRef sender) {
     if(inside_cs) {
-      //TODO: log warning and ignore crash request
+      //Ignore crash request if in CS
+      logger.logWarning("Node is in CS. Crash request message ignored.");
     } else {
       holder = -1;
       request_list.clear();
@@ -419,7 +421,7 @@ public class Node extends AbstractActor {
 
   @Override
   public Receive createReceive() {
-    //TODO: insert the broker as a receiver for all messages
+    //insert the broker as a receiver for all messages
     return receiveBuilder()
       .matchAny(this::brokerDispatcher)
       .build();
