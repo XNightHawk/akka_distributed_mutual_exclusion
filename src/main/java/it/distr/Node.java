@@ -1,8 +1,10 @@
 package it.distr;
+import akka.actor.Actor;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
 import akka.actor.Props;
 import akka.dispatch.Recover;
+import com.sun.corba.se.pept.broker.Broker;
 import it.distr.utils.Tuple;
 import scala.concurrent.duration.Duration;
 
@@ -25,17 +27,24 @@ public class Node extends AbstractActor {
   //Collects neighbors state (holder id, non empty request queue) during crash restart
   private Map<Integer, Tuple<Integer, Boolean>> recovery_info = new HashMap<>();
 
+  private MessageBroker broker;
+
   public Node(int id) {
     this.myId = id;
     //TODO: neighbor initialization via message
     holder = -1;
     inside_cs = false;
 
-    //TODO: ensure message broker is in init mode and discards correct messages
+    //Create a message broker in initialization mode
+    broker = new MessageBroker();
   }
 
   static public Props props(int id) {
     return Props.create(Node.class, () -> new Node(id));
+  }
+
+  public static class NeighborInit implements Serializable {
+
   }
 
   public static class Init implements Serializable {
@@ -99,9 +108,12 @@ public class Node extends AbstractActor {
       currentNeighbor.tell(new Init(myId), getSelf());
     }
 
-    //TODO: exit message broker init mode and work normally
+    broker.changeMode(BrokerMode.NORMAL_MODE);
   }
 
+  public void onNeighborInit(NeighborInit message, ActorRef sender) {
+    //TODO: implement
+  }
 
   public void onInit(Init message, ActorRef sender) {
     holder = getIdBySender(sender);
@@ -112,8 +124,7 @@ public class Node extends AbstractActor {
       }
     }
 
-    //TODO: exit message broker init mode and work normally
-
+    broker.changeMode(BrokerMode.NORMAL_MODE);
   }
 
   public void onRequest(Request message, ActorRef sender) {
@@ -194,16 +205,16 @@ public class Node extends AbstractActor {
       holder = -1;
       request_list.clear();
       recovery_info.clear();
-      for(ActorRef neighbor : neighbors.values()) {
-        //TODO: ask broker to drop anything from neighbors, but remain able to receive an end crash message
-      }
+
+      broker.changeMode(BrokerMode.SELECTIVE_RECOVERY_MODE);
     }
   }
 
   public void onCrashEnd(CrashEnd message, ActorRef sender) {
     for(ActorRef neighbor : neighbors.values()) {
+
       //Ask recovery info from everyone
-      //TODO: ask broker to allow only RECOVERY_INFO_RESPONSE from neighbor
+      //Broker is already allowing recovery info response
       neighbor.tell(new RecoveryInfoRequest(), getSelf());
     }
   }
@@ -239,8 +250,8 @@ public class Node extends AbstractActor {
     Tuple<Integer, Boolean> recoveryData = new Tuple<>(message.holderId, message.requestListNotEmpty);
     recovery_info.put(senderId, recoveryData);
 
-    //TODO: ask broker to queue for later all messages coming from sender. They will be unlocked and processed when
-    //recovery operations are over
+    //ask broker to queue for later all messages coming from sender. They will be unlocked and processed when recovery operations are over
+    broker.removeFromBlacklist(sender);
 
 	//I have a response from every neighbor
     if(recovery_info.size() == neighbors.size()) {
@@ -259,7 +270,8 @@ public class Node extends AbstractActor {
         }
       }
 
-      //TODO: ask broker to resume normally. Before resuming 'normally', the broker will process each pending message in his queue
+      //Ask broker to resume normally. Before resuming 'normally', the broker will process each pending message in his queue
+      broker.changeMode(BrokerMode.NORMAL_MODE);
 
       //Posso essere holder e avere delle richieste adesso se sono crashato mentre il token era su un link diretto verso di me
       //In questo caso potrei avere messaggi da spedire
@@ -269,12 +281,147 @@ public class Node extends AbstractActor {
     }
   }
 
+  private enum BrokerMode {
+    PREINIT_MODE,
+    NORMAL_MODE,
+    SELECTIVE_RECOVERY_MODE;
+
+  }
+
+  private class MessageBroker {
+
+    //INVARIANT: in the message queue there are never packets that may cause a change in state of the queue
+    //In a transition from init to normal in the queue there may be only packets from other nodes which make the node
+    //stay in normal
+    //In a transition from recovery mode only packets from other nodes may be in the queue and those make the node stay
+    //in normal
+
+    private BrokerMode currentMode = BrokerMode.PREINIT_MODE;
+    private Queue<Tuple<Object, ActorRef>> messageQueue = new ArrayDeque<>();
+    private Set<ActorRef> recoveryBlacklist = new HashSet<>();
+
+    public void changeMode(BrokerMode mode) {
+
+      //Cannot go directly to recovery without passing from normal mode
+      assert(!((currentMode == BrokerMode.PREINIT_MODE) && (mode == BrokerMode.SELECTIVE_RECOVERY_MODE)));
+
+      currentMode = mode;
+      if (currentMode == BrokerMode.NORMAL_MODE) {
+        //All blacklist requests from previous crashed must have been already handled
+        assert(recoveryBlacklist.isEmpty());
+        //For the invariant no packet in the queue may make the state change, so it is safe to dispatch them all in batch
+        dispatchAllWaitingMessages();
+      } else if (currentMode == BrokerMode.PREINIT_MODE) {
+        //Broker must be created in this mode and never return to it
+        assert(false);
+      } else if (currentMode == BrokerMode.SELECTIVE_RECOVERY_MODE) {
+        //No messages must be there while switching to slective recovery mode
+        assert(messageQueue.isEmpty());
+        //All blacklist requests from previous crashed must have been already handled
+        assert(recoveryBlacklist.isEmpty());
+        recoveryBlacklist.clear();
+        for(ActorRef neighborRef : Node.this.neighbors.values()) {
+          recoveryBlacklist.add(neighborRef);
+        }
+      } else {
+        throw new Error("Unknown BrokerMode " + currentMode.toString());
+      }
+
+    }
+
+    public void removeFromBlacklist(ActorRef node) {
+      assert(recoveryBlacklist.contains(node));
+
+      recoveryBlacklist.remove(node);
+    }
+
+    private void dispatchAllWaitingMessages() {
+      while(!messageQueue.isEmpty()) {
+
+        //This method should be called only in normal mode
+        assert(currentMode == BrokerMode.NORMAL_MODE);
+        Tuple<Object, ActorRef> messageData = messageQueue.poll();
+        dispatchMessage(messageData);
+      }
+    }
+
+    private void dispatchMessage(Tuple<Object, ActorRef> messageData) {
+      Object message = messageData.first();
+      ActorRef sender = messageData.last();
+
+      //Find node method to which dispatch the message and dispatch it
+      if(message.getClass().equals(Init.class)) {
+        Node.this.onInit((Init) message, sender);
+      } else if(message.getClass().equals(TokenInject.class)) {
+        Node.this.onTokenInject((TokenInject) message, sender);
+      } else if(message.getClass().equals(Request.class)) {
+        Node.this.onRequest((Request) message, sender);
+      } else if(message.getClass().equals(Privilege.class)) {
+        Node.this.onPrivilege((Privilege) message, sender);
+      } else if(message.getClass().equals(RecoveryInfoRequest.class)) {
+        Node.this.onRecoveryInfoRequest((RecoveryInfoRequest) message, sender);
+      } else if(message.getClass().equals(RecoveryInfoResponse.class)) {
+        Node.this.onRecoveryInfoResponse((RecoveryInfoResponse) message, sender);
+      } else if(message.getClass().equals(ExitCS.class)) {
+        Node.this.onExitCS((ExitCS) message, sender);
+      } else if(message.getClass().equals(CrashBegin.class)) {
+        Node.this.onCrashBegin((CrashBegin) message, sender);
+      } else if(message.getClass().equals(CrashEnd.class)) {
+        Node.this.onCrashEnd((CrashEnd) message, sender);
+      } else if(message.getClass().equals(NeighborInit.class)) {
+        Node.this.onNeighborInit((NeighborInit) message, sender);
+      } else {
+        throw new Error("Unregistered message class " + message.getClass().toString());
+      }
+    }
+
+    public void messageArrived(Object message, ActorRef sender) {
+
+      Tuple<Object, ActorRef> messageData = new Tuple<>(message, sender);
+
+      if(currentMode == BrokerMode.NORMAL_MODE) {
+        dispatchMessage(messageData);
+      } else if(currentMode == BrokerMode.PREINIT_MODE) {
+        if(message.getClass().equals(NeighborInit.class)) {
+          dispatchMessage(messageData);
+        } else {
+          messageQueue.add(messageData);
+        }
+      } else if(currentMode == BrokerMode.SELECTIVE_RECOVERY_MODE) {
+        //Messages with no sender coming from outside are always handled
+        if(recoveryBlacklist.contains(sender)) {
+
+          //We drop anything apart from RecoveryResponse messages
+          if(message.getClass().equals(RecoveryInfoResponse.class)) {
+            dispatchMessage(messageData);
+          }
+        //Packets from outside Eg CrashEnd are processed immediately
+        } else if(sender == null) {
+          dispatchMessage(messageData);
+        //All other packets from non blacklisted nodes are remembered for later
+        } else {
+          messageQueue.add(messageData);
+        }
+
+      } else {
+        throw new Error("Unknown BrokerMode " + currentMode.toString());
+      }
+    }
+
+  }
+
+  public void brokerDispatcher(Object message) {
+    ActorRef sender = getSender();
+
+    //Notify the broker when any message arrives
+    broker.messageArrived(message, sender);
+  }
 
   @Override
   public Receive createReceive() {
     //TODO: insert the broker as a receiver for all messages
     return receiveBuilder()
-      .match(JoinGroupMsg.class,  this::onJoinGroupMsg)
+      .matchAny(this::brokerDispatcher)
       .build();
   }
 }
