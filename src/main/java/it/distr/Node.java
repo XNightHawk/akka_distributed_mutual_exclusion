@@ -2,6 +2,7 @@ package it.distr;
 import akka.actor.ActorRef;
 import akka.actor.AbstractActor;
 import akka.actor.Props;
+import it.distr.utils.Configuration;
 import it.distr.utils.Logger;
 import it.distr.utils.Tuple;
 import scala.concurrent.duration.Duration;
@@ -11,6 +12,7 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 
+@SuppressWarnings("WeakerAccess")
 public class Node extends AbstractActor {
   //Node ID
   private int myId;
@@ -32,7 +34,6 @@ public class Node extends AbstractActor {
     this.myId = id;
     logger = new Logger(myId);
 
-    //TODO: neighbor initialization via message
     holder = -1;
     inside_cs = false;
 
@@ -45,6 +46,10 @@ public class Node extends AbstractActor {
   }
 
   public static class NeighborInit implements Serializable {
+    public final int nodeId;
+    public final ActorRef nodeRef;
+
+    public NeighborInit(int nodeId, ActorRef nodeRef) { this.nodeId = nodeId; this.nodeRef = nodeRef; }
 
   }
 
@@ -86,11 +91,17 @@ public class Node extends AbstractActor {
   public static class CrashEnd implements Serializable {}
 
   private int getIdBySender(ActorRef sender) {
+
+    if(sender.equals(getSelf())) return myId; // my id is not in the neighbor list, handled here
+
     for(Map.Entry<Integer, ActorRef> entry : neighbors.entrySet()) {
       if(entry.getValue().equals(sender)) {
         return entry.getKey();
       }
     }
+
+
+    logger.logError("getIdBySender() cannot find ID!");
     throw new Error("Cannot find id for neighbor " + sender.toString());
   }
 
@@ -110,10 +121,15 @@ public class Node extends AbstractActor {
     }
 
     broker.changeMode(BrokerMode.NORMAL_MODE);
+
+    if(Configuration.DEBUG) {
+      logger.logInfo("Token injected!" + "   " + "holder: " + holder + "   " + "neighbors: " + (neighbors.keySet()).toString());
+    }
+
   }
 
   public void onNeighborInit(NeighborInit message, ActorRef sender) {
-    //TODO: implement
+    neighbors.put(message.nodeId, message.nodeRef);
   }
 
   public void onInit(Init message, ActorRef sender) {
@@ -126,76 +142,126 @@ public class Node extends AbstractActor {
     }
 
     broker.changeMode(BrokerMode.NORMAL_MODE);
+
+    if(Configuration.DEBUG) {
+      logger.logInfo("Init received!" + "   " + "holder: " + holder + "   " + "neighbors: " + (neighbors.keySet()).toString());
+    }
   }
 
   public void onRequest(Request message, ActorRef sender) {
+    if(Configuration.DEBUG) {
+      logger.logInfo("onRequest() - request received from: " + getIdBySender(sender));
+    }
+
     ActorRef requester = sender;
+
     int requesterId = getIdBySender(sender);
 
     //Otherwise it means we had duplicate request which is bad
-    assert(!request_list.contains(requester);
-
-    request_list.add(requesterId);
+    if(!(!request_list.contains(requester))) logger.logError("assertion - duplicated request");
+    assert(!request_list.contains(requester));
 
     //Must forward the request to the holder or satisfy it if I am the holder and not in cs
     if(request_list.isEmpty()) {
-
       if(inside_cs) {
         request_list.add(requesterId); //Put in the list, as soon as I exit I will grant it
 
       } else if(holder == myId) {
 
+        //If the request message is sent by myself, add me to the request_list
+        //so that giveAccessToFirst() will be called (after Privilege message received) and i will enter the CS
+        if(requesterId == myId) request_list.add(requesterId);
         //Grant the privilege and say I don't require token back because I have no other pending requests
         requester.tell(new Privilege(false), getSelf());
+
+        if(Configuration.DEBUG) {
+          logger.logInfo("onRequest() - privilege sent to: " + requesterId);
+        }
+
         holder = requesterId;
       } else {
         //Request token on behalf of requester to my holder
         request_list.add(requesterId);
 
         ActorRef holderRef = getHolderRef();
+        if(!(holderRef != null)) logger.logError("assertion - no ActorRef found for my holderId");
         assert(holderRef != null);
 
         holderRef.tell(new Request(), getSelf());
+
+        if(Configuration.DEBUG) {
+          logger.logInfo("onRequest() - request forwarded to: " + getIdBySender(getHolderRef()));
+        }
       }
     } else {
       //Put in the list, but I already requested privilege before, so don't send a duplicate request
       request_list.add(requesterId);
     }
+
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
+    }
   }
 
   private void giveAccessToFirst() {
-
     //Fetches the first element
+    if(!(!request_list.isEmpty())) logger.logError("assertion - giveAccessToFirst() but request_list is empty");
     assert(!request_list.isEmpty());
     int oldLength = request_list.size();
     int first_requester = request_list.poll();
+    if(!(request_list.size() == oldLength - 1)) logger.logError("assertion - giveAccessToFirst() but not updated request_list");
     assert(request_list.size() == oldLength - 1);
 
     if(first_requester == myId) {
-      getContext().getSystem().scheduler().scheduleOnce(Duration.create(1, TimeUnit.MILLISECONDS), getSelf(), new ExitCS(), getContext().system().dispatcher(), getSelf());
+      getContext().getSystem().scheduler().scheduleOnce(Duration.create(1000, TimeUnit.MILLISECONDS), getSelf(), new ExitCS(), getContext().system().dispatcher(), getSelf());
       inside_cs = true;
+      logger.logInfo("ENTER CS");
     } else {
       boolean need_privilege_back = !request_list.isEmpty();
       ActorRef first_requester_ref = getNeighborRef(first_requester);
       //Send a privilege to the node to serve and ask it back if I have other requests.
       first_requester_ref.tell(new Privilege(need_privilege_back), getSelf());
+
+      if(Configuration.DEBUG) {
+        logger.logInfo("giveAccessToFirst() - privilege sent to: " + first_requester);
+      }
+
       holder = first_requester;
     }
   }
 
   public void onPrivilege(Privilege message, ActorRef sender) {
+    if(!(!request_list.isEmpty())) logger.logError("assertion - onPrivilege() request_list is empty");
     assert(!request_list.isEmpty());
 
+    if(Configuration.DEBUG) {
+      logger.logInfo("onPrivilege() - privilege received from: " + getIdBySender(sender));
+    }
+
     holder = myId;
+
+    //If the token is required by the previous owner (to compete other requests) add the sender to the request_list
+    boolean requiresTokenBack = message.requiresTokenBack;
+    if(requiresTokenBack) {
+      request_list.add(getIdBySender(sender));
+    }
+
     giveAccessToFirst();
+
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
+    }
   }
 
   public void onExitCS(ExitCS message, ActorRef sender) {
     inside_cs = false;
-
+    logger.logInfo("EXIT CS");
     //If someone needs the token give it to them, otherwise sit idle
     if(!request_list.isEmpty()) {
       giveAccessToFirst();
+    }
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
     }
   }
 
@@ -210,6 +276,9 @@ public class Node extends AbstractActor {
 
       broker.changeMode(BrokerMode.SELECTIVE_RECOVERY_MODE);
     }
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
+    }
   }
 
   public void onCrashEnd(CrashEnd message, ActorRef sender) {
@@ -219,16 +288,23 @@ public class Node extends AbstractActor {
       //Broker is already allowing recovery info response
       neighbor.tell(new RecoveryInfoRequest(), getSelf());
     }
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
+    }
   }
 
   public void onRecoveryInfoRequest(RecoveryInfoRequest message, ActorRef sender) {
     //#Tells my holder and whether I have some request, if my holder is not the requesting node, the second boolean field is useless.
     sender.tell(new RecoveryInfoResponse(holder, !request_list.isEmpty()), getSelf());
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
+    }
   }
 
   private void decideHolder() {
 
     //Ensures we received the recovery information from all neighbors
+    if(!(recovery_info.size() == neighbors.size())) logger.logError("assertion - recovery messages not received by anybody");
     assert(recovery_info.size() == neighbors.size());
 
     //Search if there is a neighbor of which we are not the holders
@@ -281,6 +357,9 @@ public class Node extends AbstractActor {
         giveAccessToFirst();
       }
     }
+    if(Configuration.DEBUG) {
+      logger.logNodeState(holder, request_list, inside_cs);
+    }
   }
 
   private enum BrokerMode {
@@ -305,33 +384,40 @@ public class Node extends AbstractActor {
     public void changeMode(BrokerMode mode) {
 
       //Cannot go directly to recovery without passing from normal mode
+      if(!(!((currentMode == BrokerMode.PREINIT_MODE) && (mode == BrokerMode.SELECTIVE_RECOVERY_MODE)))) logger.logError("assertion - changeMode() trying to change mode uncorrectly");
       assert(!((currentMode == BrokerMode.PREINIT_MODE) && (mode == BrokerMode.SELECTIVE_RECOVERY_MODE)));
 
       currentMode = mode;
       if (currentMode == BrokerMode.NORMAL_MODE) {
         //All blacklist requests from previous crashed must have been already handled
+        if(!(recoveryBlacklist.isEmpty())) logger.logError("assertion - changeMode() recoveryBlacklist not empty");
         assert(recoveryBlacklist.isEmpty());
         //For the invariant no packet in the queue may make the state change, so it is safe to dispatch them all in batch
         dispatchAllWaitingMessages();
       } else if (currentMode == BrokerMode.PREINIT_MODE) {
         //Broker must be created in this mode and never return to it
+        if(!(false)) logger.logError("assertion - changeMode()");
         assert(false);
       } else if (currentMode == BrokerMode.SELECTIVE_RECOVERY_MODE) {
-        //No messages must be there while switching to slective recovery mode
+        //No messages must be there while switching to selective recovery mode
+        if(!(messageQueue.isEmpty())) logger.logError("assertion - changeMode() messageQueue not empty");
         assert(messageQueue.isEmpty());
         //All blacklist requests from previous crashed must have been already handled
+        if(!(recoveryBlacklist.isEmpty())) logger.logError("assertion - changeMode() recoveryBlacklist not empty");
         assert(recoveryBlacklist.isEmpty());
         recoveryBlacklist.clear();
         for(ActorRef neighborRef : Node.this.neighbors.values()) {
           recoveryBlacklist.add(neighborRef);
         }
       } else {
+        logger.logError("Unknown BrokerMode " + currentMode.toString());
         throw new Error("Unknown BrokerMode " + currentMode.toString());
       }
 
     }
 
     public void removeFromBlacklist(ActorRef node) {
+      if(!(recoveryBlacklist.contains(node))) logger.logError("assertion - removeFromBlacklist() trying to remove somebody that is not there");
       assert(recoveryBlacklist.contains(node));
 
       recoveryBlacklist.remove(node);
@@ -341,6 +427,7 @@ public class Node extends AbstractActor {
       while(!messageQueue.isEmpty()) {
 
         //This method should be called only in normal mode
+        if(!(currentMode == BrokerMode.NORMAL_MODE)) logger.logError("assertion - dispatchAllWaitingMessages() called not in normal mode");
         assert(currentMode == BrokerMode.NORMAL_MODE);
         Tuple<Object, ActorRef> messageData = messageQueue.poll();
         dispatchMessage(messageData);
@@ -373,6 +460,7 @@ public class Node extends AbstractActor {
       } else if(message.getClass().equals(NeighborInit.class)) {
         Node.this.onNeighborInit((NeighborInit) message, sender);
       } else {
+        logger.logError("Exception");
         throw new Error("Unregistered message class " + message.getClass().toString());
       }
     }
@@ -385,6 +473,10 @@ public class Node extends AbstractActor {
         dispatchMessage(messageData);
       } else if(currentMode == BrokerMode.PREINIT_MODE) {
         if(message.getClass().equals(NeighborInit.class)) {
+          dispatchMessage(messageData);
+        } else if(message.getClass().equals(TokenInject.class)) {
+          dispatchMessage(messageData);
+        } else if(message.getClass().equals(Init.class)) {
           dispatchMessage(messageData);
         } else {
           messageQueue.add(messageData);
@@ -406,6 +498,7 @@ public class Node extends AbstractActor {
         }
 
       } else {
+        logger.logError("Exception");
         throw new Error("Unknown BrokerMode " + currentMode.toString());
       }
     }
@@ -426,4 +519,5 @@ public class Node extends AbstractActor {
       .matchAny(this::brokerDispatcher)
       .build();
   }
+
 }
