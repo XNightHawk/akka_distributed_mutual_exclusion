@@ -254,6 +254,7 @@ public class Node extends AbstractActor {
   }
 
   public void onExitCS(ExitCS message, ActorRef sender) {
+
     inside_cs = false;
     logger.logInfo("EXIT CS");
     //If someone needs the token give it to them, otherwise sit idle
@@ -266,6 +267,11 @@ public class Node extends AbstractActor {
   }
 
   public void onCrashBegin(CrashBegin message, ActorRef sender) {
+
+    if(Configuration.DEBUG) {
+      logger.logInfo("onCrashBegin() - entering crash mode");
+    }
+
     if(inside_cs) {
       //Ignore crash request if in CS
       logger.logWarning("Node is in CS. Crash request message ignored.");
@@ -282,6 +288,11 @@ public class Node extends AbstractActor {
   }
 
   public void onCrashEnd(CrashEnd message, ActorRef sender) {
+
+    if(Configuration.DEBUG) {
+      logger.logInfo("onCrashEnd() - starting recovery operations");
+    }
+
     for(ActorRef neighbor : neighbors.values()) {
 
       //Ask recovery info from everyone
@@ -294,6 +305,11 @@ public class Node extends AbstractActor {
   }
 
   public void onRecoveryInfoRequest(RecoveryInfoRequest message, ActorRef sender) {
+
+    if(Configuration.DEBUG) {
+      logger.logInfo("onRecoveryInfoRequest() - sending recovery information");
+    }
+
     //#Tells my holder and whether I have some request, if my holder is not the requesting node, the second boolean field is useless.
     sender.tell(new RecoveryInfoResponse(holder, !request_list.isEmpty()), getSelf());
     if(Configuration.DEBUG) {
@@ -324,6 +340,10 @@ public class Node extends AbstractActor {
 
   public void onRecoveryInfoResponse(RecoveryInfoResponse message, ActorRef sender) {
 
+    if(Configuration.DEBUG) {
+      logger.logInfo("onRecoveryInfoResponse() - received recovery information from: " + getIdBySender(sender));
+    }
+
     int senderId = getIdBySender(sender);
     Tuple<Integer, Boolean> recoveryData = new Tuple<>(message.holderId, message.requestListNotEmpty);
     recovery_info.put(senderId, recoveryData);
@@ -333,6 +353,10 @@ public class Node extends AbstractActor {
 
 	//I have a response from every neighbor
     if(recovery_info.size() == neighbors.size()) {
+
+      if(Configuration.DEBUG) {
+        logger.logInfo("onRecoveryInfoResponse() - all recovery info received");
+      }
 
       //Sets the correct holder
       decideHolder();
@@ -490,10 +514,12 @@ public class Node extends AbstractActor {
             dispatchMessage(messageData);
           }
         //Packets from outside Eg CrashEnd are processed immediately
-        } else if(sender == null) {
+        } else if(message.getClass().equals(CrashEnd.class)) {
+
           dispatchMessage(messageData);
         //All other packets from non blacklisted nodes are remembered for later
         } else {
+
           messageQueue.add(messageData);
         }
 
@@ -516,8 +542,8 @@ public class Node extends AbstractActor {
   public Receive createReceive() {
     //insert the broker as a receiver for all messages
     return receiveBuilder()
-      .matchAny(this::brokerDispatcher)
-      .build();
+            .matchAny(this::brokerDispatcher)
+            .build();
   }
 
 }

@@ -45,7 +45,7 @@ public class CommandParser {
         } else if(match_request.matches()) {
             execRequest(match_request.group(1));
         } else if(match_crash.matches()) {
-            execCrash(match_request.group(1));
+            execCrash(match_crash.group(1));
         } else if(match_help.matches()){
             printUsage();
         } else {

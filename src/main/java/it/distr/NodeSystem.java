@@ -25,11 +25,27 @@ public class NodeSystem {
     //final ActorSystem system = ActorSystem.create("network", ConfigFactory.load(config));
     final ActorSystem system = ActorSystem.create("network");
 
-    ActorRef[] nodes = new ActorRef[5];
+    ActorRef[] nodes = new ActorRef[7];
 
     for (int i = 0; i < nodes.length; i++) {
       nodes[i] = system.actorOf(Node.props(i));
     }
+
+    /*
+
+    Il crash non riprende correttamente eg crash 1, request 0, crash 1
+    il nodo 1 recupera correttamente le informazioni sull'holder e sulla sua request list
+    Il problema e' che 1 non puo' sapere se ha o meno mandato una richiesta a 2
+    nel nostro caso una richiesta non e' mai stata mandata.
+    Bisogna stare attenti nel caso si decidesse di mandare una request a prescindere dopo un crash perche' potrebbe causare
+    una richiesta duplicata
+
+    Un'idea e' di mandare comunque una richiesta alla ripresa dal crash. Un nodo ogni volta che riceve una richiesta controlla se e' gia' in lista. Se non lo e' controlla che non provenga dal proprio holder.
+    Se cio' non si verifica la richeista puo' essere aggiunta.
+    Questo dovrebbe funzionare. Controllare che questa strategia non generi problemi
+
+     */
+
 
     // neighbor initialization
     nodes[0].tell(new NeighborInit(1, nodes[1]), null);
@@ -40,10 +56,16 @@ public class NodeSystem {
     nodes[2].tell(new NeighborInit(4, nodes[4]), null);
     nodes[3].tell(new NeighborInit(2, nodes[2]), null);
     nodes[4].tell(new NeighborInit(2, nodes[2]), null);
+    nodes[4].tell(new NeighborInit(6, nodes[6]), null);
+    nodes[4].tell(new NeighborInit(5, nodes[5]), null);
+    nodes[5].tell(new NeighborInit(4, nodes[4]), null);
+    nodes[6].tell(new NeighborInit(4, nodes[4]), null);
 
-    system.scheduler().scheduleOnce(
-            Duration.create(1, TimeUnit.SECONDS),
-            nodes[2], new TokenInject(), system.dispatcher(), null);
+    nodes[2].tell(new TokenInject(), null);
+
+    //system.scheduler().scheduleOnce(
+    //        Duration.create(0, TimeUnit.SECONDS),
+    //        nodes[2], new TokenInject(), system.dispatcher(), null);
 
     CommandParser cp = new CommandParser(nodes);
 
