@@ -13,6 +13,9 @@ public class CommandParser {
     public static final Pattern COMMAND_CRASH = Pattern.compile("^crash\\s+(\\d+)$");
     public static final Pattern COMMAND_EXIT = Pattern.compile("^exit$");
     public static final Pattern COMMAND_HELP = Pattern.compile("^help$");
+    public static final Pattern COMMAND_RFT = Pattern.compile("^rft\\s+(\\d+)\\s+(\\d+)$"); //request from -> to
+    public static final Pattern COMMAND_FORCE_CRASH = Pattern.compile("^force_crash\\s+(\\d+)$");
+    public static final Pattern COMMAND_FORCE_RECOVERY = Pattern.compile("^force_recovery\\s+(\\d+)$");
 
     private ActorRef[] nodes;
     private int crashedNode = -1;
@@ -39,6 +42,9 @@ public class CommandParser {
         Matcher match_crash = COMMAND_CRASH.matcher(input);
         Matcher match_exit = COMMAND_EXIT.matcher(input);
         Matcher match_help = COMMAND_HELP.matcher(input);
+        Matcher match_rft = COMMAND_RFT.matcher(input);
+        Matcher match_force_crash = COMMAND_FORCE_CRASH.matcher(input);
+        Matcher match_force_recovery = COMMAND_FORCE_RECOVERY.matcher(input);
 
         if(match_exit.matches()) {
             return true;
@@ -46,12 +52,20 @@ public class CommandParser {
             execRequest(match_request.group(1));
         } else if(match_crash.matches()) {
             execCrash(match_crash.group(1));
-        } else if(match_help.matches()){
+        } else if(match_help.matches()) {
             printUsage();
-        } else {
+        } else if(match_rft.matches()) {
+            execRft(match_rft.group(1), match_rft.group(2));
+        } else if(match_force_crash.matches()) {
+            execForceCrash(match_force_crash.group(1));
+        } else if(match_force_recovery.matches()) {
+            execForceRecovery(match_force_recovery.group(1));
+        } else if(input.equals("")){
             return false;
+        } else {
+            printUsage();
         }
-        //TODO add wrong usage (when string != "" but still does not match anything)
+
         /*
         if(m.matches()) {
             System.out.println("Groups: " + m.groupCount());
@@ -84,6 +98,7 @@ public class CommandParser {
             nodes[nodeIds[i]].tell(new Node.Request(), nodes[nodeIds[i]]);
         }
     }
+
     private void execCrash(String a) {
         //parse arguments
         int nodeId = Integer.parseInt(a.trim());
@@ -109,22 +124,61 @@ public class CommandParser {
         }
     }
 
-    private void printUsage() {
-        System.out.println("Commands:");
-        System.out.println("request comma_separated_list_of_nodes_id");
-        System.out.println("crash node_id");
-        System.out.println("exit");
-    }
+    private void execRft(String f, String t) {
+        int from = Integer.parseInt(f);
+        int to = Integer.parseInt(t);
 
-
-    public static void main(String args[]) {
-        CommandParser cp = new CommandParser(null);
-
-        boolean over = false;
-
-        while(!over) {
-            over = cp.parse();
+        if(from < 0 || from >= nodes.length) {
+            System.out.println("Node ID not valid!");
+            return;
         }
 
+        if(to < 0 || to >= nodes.length) {
+            System.out.println("Node ID not valid!");
+            return;
+        }
+
+        System.out.println("Injecting request from " + from + " to " + to);
+        nodes[to].tell(new Node.Request(), nodes[from]);
+    }
+
+    private void execForceCrash(String a) {
+        //parse arguments
+        int nodeId = Integer.parseInt(a.trim());
+
+        if(nodeId < 0 || nodeId >= nodes.length) {
+            System.out.println("Node ID not valid!");
+            return;
+        }
+
+        System.out.println("Forcing crash of node " + nodeId);
+        nodes[nodeId].tell(new Node.CrashBegin(), null);
+    }
+
+    private void execForceRecovery(String a) {
+        //parse arguments
+        int nodeId = Integer.parseInt(a.trim());
+
+        if(nodeId < 0 || nodeId >= nodes.length) {
+            System.out.println("Node ID not valid!");
+            return;
+        }
+
+        System.out.println("Forcing recovery of node " + nodeId);
+        nodes[nodeId].tell(new Node.CrashEnd(), null);
+    }
+
+    private void printUsage() {
+        System.out.println("Commands:");
+        System.out.println("request comma_separated_list_of_nodes_id            -- ask node to enter CS");
+        System.out.println("crash node_id                                       -- crashes/recovers node");
+        System.out.println("help                                                -- shows this prompt");
+        System.out.println("exit                                                -- terminates system");
+        System.out.println(Configuration.ANSI_YELLOW);
+        System.out.println("Debug Commands -- Will probably crash the software unless you know what you are doing!");
+        System.out.println("rft node_from node_to                               -- generate request from node to node");
+        System.out.println("force_crash                                         -- sends crashBegin signal (even with other crashes present)");
+        System.out.println("force_recovery                                      -- sends crashEnd signal");
+        System.out.println(Configuration.ANSI_RESET);
     }
 }

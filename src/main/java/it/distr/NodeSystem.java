@@ -44,6 +44,27 @@ public class NodeSystem {
     Se cio' non si verifica la richeista puo' essere aggiunta.
     Questo dovrebbe funzionare. Controllare che questa strategia non generi problemi
 
+    //simulates the fact that 1 crashed after forwarding request and comes back before token has even reached him
+
+    // pass token to 3
+    request 3
+
+    //node 1 crashes
+    crash 1
+    request 0
+
+    //token is being used for a long time on the other side of the topology
+    force_crash 3
+
+    //node 1 forwarded request before crashing
+    rft 1 2
+
+    //node 1 comes back
+    crash 1
+
+    NOW IF BEHAVIOR IS CORRECT ONE SHOULD FORWARD REQUEST AND 2 SHOULD SEE A DUBLICATE WHICH IT DROPS
+
+
      */
 
 

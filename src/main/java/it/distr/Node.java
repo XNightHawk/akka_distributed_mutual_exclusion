@@ -158,8 +158,19 @@ public class Node extends AbstractActor {
     int requesterId = getIdBySender(sender);
 
     //Otherwise it means we had duplicate request which is bad
-    if(!(!request_list.contains(requester))) logger.logError("assertion - duplicated request");
-    assert(!request_list.contains(requester));
+    if(request_list.contains(requesterId)) {
+      logger.logWarning("onRequest() - duplicated request received from " + requesterId + " (did he crash?) request was dropped");
+      return;
+    }
+
+    //If request comes from my holder he probably crashed (it sent the request during onCrashExit)
+    if(requesterId == holder) {
+      logger.logWarning("onRequest() - request received from holder " + requesterId + " (did he crash?) request was dropped");
+      return;
+    }
+
+    //if(!(!request_list.contains(requesterId))) logger.logError("assertion - duplicated request");
+    //assert(!request_list.contains(requesterId));
 
     //Must forward the request to the holder or satisfy it if I am the holder and not in cs
     if(request_list.isEmpty()) {
@@ -380,6 +391,17 @@ public class Node extends AbstractActor {
       if((holder == myId) && (!request_list.isEmpty())) {
         giveAccessToFirst();
       }
+
+      //I could have crashed before receiving the request from a node that wants to access, in that case my request list
+      //will not be empty but i didn't forward the request yet, do it now
+      if((holder != myId) && (!request_list.isEmpty())) {
+        ActorRef holderRef = getHolderRef();
+        holderRef.tell(new Request(), getSelf());
+
+        if(Configuration.DEBUG) {
+          logger.logInfo("onRequest() - request forwarded to: " + getIdBySender(getHolderRef()));
+        }
+      }
     }
     if(Configuration.DEBUG) {
       logger.logNodeState(holder, request_list, inside_cs);
@@ -449,7 +471,6 @@ public class Node extends AbstractActor {
 
     private void dispatchAllWaitingMessages() {
       while(!messageQueue.isEmpty()) {
-
         //This method should be called only in normal mode
         if(!(currentMode == BrokerMode.NORMAL_MODE)) logger.logError("assertion - dispatchAllWaitingMessages() called not in normal mode");
         assert(currentMode == BrokerMode.NORMAL_MODE);
@@ -506,6 +527,7 @@ public class Node extends AbstractActor {
           messageQueue.add(messageData);
         }
       } else if(currentMode == BrokerMode.SELECTIVE_RECOVERY_MODE) {
+
         //Messages with no sender coming from outside are always handled
         if(recoveryBlacklist.contains(sender)) {
 
@@ -519,7 +541,6 @@ public class Node extends AbstractActor {
           dispatchMessage(messageData);
         //All other packets from non blacklisted nodes are remembered for later
         } else {
-
           messageQueue.add(messageData);
         }
 

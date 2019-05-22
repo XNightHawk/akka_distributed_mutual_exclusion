@@ -15,7 +15,7 @@ public class Logger {
     }
 
     public void logWarning(String message) {
-        System.out.println("(" + nodeId + ") " + message);
+        System.out.println(Configuration.ANSI_YELLOW + "(" + nodeId + ") " + message + Configuration.ANSI_RESET);
     }
 
     public void logInfo(String message) {
