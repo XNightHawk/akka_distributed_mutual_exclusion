@@ -3,6 +3,8 @@ package it.distr.utils;
 import akka.actor.ActorRef;
 import it.distr.Node;
 
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -12,6 +14,7 @@ public class CommandParser {
     public static final Pattern COMMAND_REQUEST = Pattern.compile("^request\\s+(\\d+(?:\\s*,\\s*\\d+)*)+$");
     public static final Pattern COMMAND_CRASH = Pattern.compile("^crash\\s+(\\d+)$");
     public static final Pattern COMMAND_EXIT = Pattern.compile("^exit$");
+    public static final Pattern COMMAND_DELAY = Pattern.compile("^delay\\s+(\\d+)$");
     public static final Pattern COMMAND_HELP = Pattern.compile("^help$");
     public static final Pattern COMMAND_RFT = Pattern.compile("^rft\\s+(\\d+)\\s+(\\d+)$"); //request from -> to
     public static final Pattern COMMAND_FORCE_CRASH = Pattern.compile("^force_crash\\s+(\\d+)$");
@@ -19,11 +22,20 @@ public class CommandParser {
 
     private ActorRef[] nodes;
     private int crashedNode = -1;
-    private Scanner keyboard;
+    private Scanner inputSource;
 
 
     public CommandParser(ActorRef[] n) {
-        keyboard = new Scanner(System.in);
+        inputSource = new Scanner(System.in);
+        nodes = n;
+    }
+
+    public CommandParser(ActorRef[] n, String filename) {
+        try {
+            inputSource = new Scanner(new File(filename));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
         nodes = n;
     }
 
@@ -32,15 +44,21 @@ public class CommandParser {
      */
     public boolean parse() {
         System.out.print("# ");
-        String input;
+        String input = "#";
 
-        input = keyboard.nextLine();
-        input = input.trim();
+        if(!inputSource.hasNext()) {
+            return false;
+        }
 
+        while(input.startsWith("#") || input.isEmpty()) {
+            input = inputSource.nextLine();
+            input = input.trim();
+        }
 
         Matcher match_request = COMMAND_REQUEST.matcher(input);
         Matcher match_crash = COMMAND_CRASH.matcher(input);
         Matcher match_exit = COMMAND_EXIT.matcher(input);
+        Matcher match_delay = COMMAND_DELAY.matcher(input);
         Matcher match_help = COMMAND_HELP.matcher(input);
         Matcher match_rft = COMMAND_RFT.matcher(input);
         Matcher match_force_crash = COMMAND_FORCE_CRASH.matcher(input);
@@ -48,6 +66,8 @@ public class CommandParser {
 
         if(match_exit.matches()) {
             return true;
+        } if(match_delay.matches()) {
+            execDelay(match_delay.group(1));
         } else if(match_request.matches()) {
             execRequest(match_request.group(1));
         } else if(match_crash.matches()) {
@@ -96,6 +116,17 @@ public class CommandParser {
         for(int i = 0; i < args.length; i++) {
             System.out.println("Sending request message to node " + nodeIds[i]);
             nodes[nodeIds[i]].tell(new Node.Request(), nodes[nodeIds[i]]);
+        }
+    }
+
+    private void execDelay(String delayMillisStr) {
+        //parse arguments
+        int delayMillis = Integer.parseInt(delayMillisStr.trim());
+
+        try {
+            Thread.sleep(delayMillis);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
     }
 

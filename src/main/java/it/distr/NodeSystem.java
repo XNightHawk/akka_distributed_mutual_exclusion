@@ -87,7 +87,8 @@ public class NodeSystem {
     //        Duration.create(0, TimeUnit.SECONDS),
     //        nodes[2], new TokenInject(), system.dispatcher(), null);
 
-    CommandParser cp = new CommandParser(nodes);
+    //CommandParser cp = new CommandParser(nodes);
+    CommandParser cp = new CommandParser(nodes, "scenario_3.txt");
 
     boolean over = false;
 

@@ -117,6 +117,10 @@ public class Node extends AbstractActor {
   }
 
   private void tellWrapper(ActorRef dest, Object message, ActorRef sender) {
+    tellWrapper(dest, message, sender, false);
+  }
+
+  private void tellWrapper(ActorRef dest, Object message, ActorRef sender, boolean bypass_delay) {
     if(Configuration.DEBUG) {
       try {
         int sleepMillis = generator.nextInt(Configuration.MAX_WAIT);
@@ -133,7 +137,7 @@ public class Node extends AbstractActor {
     holder = myId;
 
     for(ActorRef currentNeighbor : neighbors.values()) {
-      tellWrapper(currentNeighbor, new Init(myId), getSelf());
+      tellWrapper(currentNeighbor, new Init(myId), getSelf(), true);
     }
 
     broker.changeMode(BrokerMode.NORMAL_MODE);
@@ -153,7 +157,7 @@ public class Node extends AbstractActor {
 
     for(ActorRef currentNeighbor : neighbors.values()) {
       if(!currentNeighbor.equals(sender)) {
-        tellWrapper(currentNeighbor, new Init(myId), getSelf());
+        tellWrapper(currentNeighbor, new Init(myId), getSelf(), true);
       }
     }
 
