@@ -2,6 +2,7 @@ package it.distr.utils;
 
 public class Configuration {
     public static final boolean DEBUG = true;
+    public static final int MAX_WAIT = 250;
     // ANSI CODES FOR COLORED OUTPUT
     public static final String ANSI_RESET = "\u001B[0m";
     public static final String ANSI_BLACK = "\u001B[30m";

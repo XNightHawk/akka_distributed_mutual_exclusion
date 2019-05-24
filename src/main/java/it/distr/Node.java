@@ -27,6 +27,9 @@ public class Node extends AbstractActor {
   //Collects neighbors state (holder id, non empty request queue) during crash restart
   private Map<Integer, Tuple<Integer, Boolean>> recovery_info = new HashMap<>();
 
+  Random generator = new Random();
+
+
   private MessageBroker broker;
   private Logger logger;
 
@@ -113,11 +116,24 @@ public class Node extends AbstractActor {
     return getNeighborRef(holder);
   }
 
+  private void tellWrapper(ActorRef dest, Object message, ActorRef sender) {
+    if(Configuration.DEBUG) {
+      try {
+        int sleepMillis = generator.nextInt(Configuration.MAX_WAIT);
+        Thread.sleep(sleepMillis);
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+    }
+
+    dest.tell(message, sender);
+  }
+
   public void onTokenInject(TokenInject message, ActorRef sender) {
     holder = myId;
 
     for(ActorRef currentNeighbor : neighbors.values()) {
-      currentNeighbor.tell(new Init(myId), getSelf());
+      tellWrapper(currentNeighbor, new Init(myId), getSelf());
     }
 
     broker.changeMode(BrokerMode.NORMAL_MODE);
@@ -137,7 +153,7 @@ public class Node extends AbstractActor {
 
     for(ActorRef currentNeighbor : neighbors.values()) {
       if(!currentNeighbor.equals(sender)) {
-        currentNeighbor.tell(new Init(myId), getSelf());
+        tellWrapper(currentNeighbor, new Init(myId), getSelf());
       }
     }
 
@@ -164,13 +180,13 @@ public class Node extends AbstractActor {
     }
 
     //If request comes from my holder he probably crashed (it sent the request during onCrashExit)
-    if(requesterId == holder) {
+    if(requesterId == holder && holder != myId) {
       logger.logWarning("onRequest() - request received from holder " + requesterId + " (did he crash?) request was dropped");
       return;
     }
 
     //if(!(!request_list.contains(requesterId))) logger.logError("assertion - duplicated request");
-    //assert(!request_list.contains(requesterId));
+    assert(!request_list.contains(requesterId));
 
     //Must forward the request to the holder or satisfy it if I am the holder and not in cs
     if(request_list.isEmpty()) {
@@ -183,7 +199,7 @@ public class Node extends AbstractActor {
         //so that giveAccessToFirst() will be called (after Privilege message received) and i will enter the CS
         if(requesterId == myId) request_list.add(requesterId);
         //Grant the privilege and say I don't require token back because I have no other pending requests
-        requester.tell(new Privilege(false), getSelf());
+        tellWrapper(requester, new Privilege(false), getSelf());
 
         if(Configuration.DEBUG) {
           logger.logInfo("onRequest() - privilege sent to: " + requesterId);
@@ -198,7 +214,7 @@ public class Node extends AbstractActor {
         if(!(holderRef != null)) logger.logError("assertion - no ActorRef found for my holderId");
         assert(holderRef != null);
 
-        holderRef.tell(new Request(), getSelf());
+        tellWrapper(holderRef, new Request(), getSelf());
 
         if(Configuration.DEBUG) {
           logger.logInfo("onRequest() - request forwarded to: " + getIdBySender(getHolderRef()));
@@ -231,7 +247,7 @@ public class Node extends AbstractActor {
       boolean need_privilege_back = !request_list.isEmpty();
       ActorRef first_requester_ref = getNeighborRef(first_requester);
       //Send a privilege to the node to serve and ask it back if I have other requests.
-      first_requester_ref.tell(new Privilege(need_privilege_back), getSelf());
+      tellWrapper(first_requester_ref, new Privilege(need_privilege_back), getSelf());
 
       if(Configuration.DEBUG) {
         logger.logInfo("giveAccessToFirst() - privilege sent to: " + first_requester);
@@ -308,7 +324,7 @@ public class Node extends AbstractActor {
 
       //Ask recovery info from everyone
       //Broker is already allowing recovery info response
-      neighbor.tell(new RecoveryInfoRequest(), getSelf());
+      tellWrapper(neighbor, new RecoveryInfoRequest(), getSelf());
     }
     if(Configuration.DEBUG) {
       logger.logNodeState(holder, request_list, inside_cs);
@@ -322,7 +338,7 @@ public class Node extends AbstractActor {
     }
 
     //#Tells my holder and whether I have some request, if my holder is not the requesting node, the second boolean field is useless.
-    sender.tell(new RecoveryInfoResponse(holder, !request_list.isEmpty()), getSelf());
+    tellWrapper(sender, new RecoveryInfoResponse(holder, !request_list.isEmpty()), getSelf());
     if(Configuration.DEBUG) {
       logger.logNodeState(holder, request_list, inside_cs);
     }
@@ -383,7 +399,18 @@ public class Node extends AbstractActor {
         }
       }
 
-      //Ask broker to resume normally. Before resuming 'normally', the broker will process each pending message in his queue
+      //I could have crashed before receiving the request from a node that wants to access, in that case my request list
+      //will not be empty but i didn't forward the request yet, do it now
+      if((holder != myId) && (!request_list.isEmpty())) {
+        ActorRef holderRef = getHolderRef();
+        tellWrapper(holderRef, new Request(), getSelf());
+
+        if(Configuration.DEBUG) {
+          logger.logInfo("onRequest() - request forwarded to: " + getIdBySender(getHolderRef()));
+        }
+      }
+
+      //Ask broker to resume normally. Before resuming 'normally', the bdidnroker will process each pending message in his queue
       broker.changeMode(BrokerMode.NORMAL_MODE);
 
       //Posso essere holder e avere delle richieste adesso se sono crashato mentre il token era su un link diretto verso di me
@@ -392,16 +419,6 @@ public class Node extends AbstractActor {
         giveAccessToFirst();
       }
 
-      //I could have crashed before receiving the request from a node that wants to access, in that case my request list
-      //will not be empty but i didn't forward the request yet, do it now
-      if((holder != myId) && (!request_list.isEmpty())) {
-        ActorRef holderRef = getHolderRef();
-        holderRef.tell(new Request(), getSelf());
-
-        if(Configuration.DEBUG) {
-          logger.logInfo("onRequest() - request forwarded to: " + getIdBySender(getHolderRef()));
-        }
-      }
     }
     if(Configuration.DEBUG) {
       logger.logNodeState(holder, request_list, inside_cs);
