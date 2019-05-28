@@ -1,0 +1,13 @@
+# Request received during non-holder node crash
+
+delay 2000
+
+request 2
+request 1
+crash 1
+crash 1
+
+
+
+delay 5000
+exit

@@ -88,7 +88,7 @@ public class NodeSystem {
     //        nodes[2], new TokenInject(), system.dispatcher(), null);
 
     //CommandParser cp = new CommandParser(nodes);
-    CommandParser cp = new CommandParser(nodes, "scenario_3.txt");
+    CommandParser cp = new CommandParser(nodes, "scenario_4.txt");
 
     boolean over = false;
 

@@ -201,7 +201,9 @@ public class Node extends AbstractActor {
 
         //If the request message is sent by myself, add me to the request_list
         //so that giveAccessToFirst() will be called (after Privilege message received) and i will enter the CS
-        if(requesterId == myId) request_list.add(requesterId);
+        if(requesterId == myId) {
+          request_list.add(requesterId);
+        }
         //Grant the privilege and say I don't require token back because I have no other pending requests
         tellWrapper(requester, new Privilege(false), getSelf());
 
@@ -262,8 +264,14 @@ public class Node extends AbstractActor {
   }
 
   public void onPrivilege(Privilege message, ActorRef sender) {
-    if(!(!request_list.isEmpty())) logger.logError("assertion - onPrivilege() request_list is empty");
-    assert(!request_list.isEmpty());
+
+    int senderId = getIdBySender(sender);
+    //After a crash it is not meaningful to recover the fact whether we wanted or not to access the critical section before the crash, because that decision
+    //must be taken by the logic of the restarted application and not by the old one.
+    //For this reason we may receive a privilege and have an empty request list (Eg scenario_4.txt)
+    if(request_list.isEmpty()) {
+      logger.logWarning("onPrivilege - privilege received from " + senderId + " but request list is empty. Did we crash?");
+    }
 
     if(Configuration.DEBUG) {
       logger.logInfo("onPrivilege() - privilege received from: " + getIdBySender(sender));
@@ -274,10 +282,13 @@ public class Node extends AbstractActor {
     //If the token is required by the previous owner (to compete other requests) add the sender to the request_list
     boolean requiresTokenBack = message.requiresTokenBack;
     if(requiresTokenBack) {
-      request_list.add(getIdBySender(sender));
+      request_list.add(senderId);
     }
 
-    giveAccessToFirst();
+    //Check whether we have requests to serve. Due to crash dynamics it may not happen if our request was the only one at the moment of crash.
+    if(!request_list.isEmpty()) {
+      giveAccessToFirst();
+    }
 
     if(Configuration.DEBUG) {
       logger.logNodeState(holder, request_list, inside_cs);
@@ -414,11 +425,10 @@ public class Node extends AbstractActor {
         }
       }
 
-      //Ask broker to resume normally. Before resuming 'normally', the bdidnroker will process each pending message in his queue
+      //Ask broker to resume normally. Before resuming 'normally', the broker will process each pending message in his queue
       broker.changeMode(BrokerMode.NORMAL_MODE);
 
-      //Posso essere holder e avere delle richieste adesso se sono crashato mentre il token era su un link diretto verso di me
-      //In questo caso potrei avere messaggi da spedire
+      //Check if I am the holder and have messages to send
       if((holder == myId) && (!request_list.isEmpty())) {
         giveAccessToFirst();
       }
