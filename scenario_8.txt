@@ -1,0 +1,15 @@
+# Partition tree but still serve request in the part where the token is
+
+delay 2000
+
+request 4
+delay 450
+request 1, 3
+crash 2
+request 5, 6
+delay 1000
+crash 2
+
+
+delay 15000
+exit
