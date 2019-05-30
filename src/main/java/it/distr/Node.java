@@ -466,11 +466,13 @@ public class Node extends AbstractActor {
 
       currentMode = mode;
       if (currentMode == BrokerMode.NORMAL_MODE) {
+        logger.logInfo(" changeMode() - begin change mode to Normal");
         //All blacklist requests from previous crashed must have been already handled
         if(!(recoveryBlacklist.isEmpty())) logger.logError("assertion - changeMode() recoveryBlacklist not empty");
         assert(recoveryBlacklist.isEmpty());
         //For the invariant no packet in the queue may make the state change, so it is safe to dispatch them all in batch
         dispatchAllWaitingMessages();
+        logger.logInfo(" changeMode() - mode changed to Normal");
       } else if (currentMode == BrokerMode.PREINIT_MODE) {
         //Broker must be created in this mode and never return to it
         if(!(false)) logger.logError("assertion - changeMode()");
@@ -486,6 +488,7 @@ public class Node extends AbstractActor {
         for(ActorRef neighborRef : Node.this.neighbors.values()) {
           recoveryBlacklist.add(neighborRef);
         }
+        logger.logInfo(" changeMode() - mode changed to Selective Recovery");
       } else {
         logger.logError("Unknown BrokerMode " + currentMode.toString());
         throw new Error("Unknown BrokerMode " + currentMode.toString());

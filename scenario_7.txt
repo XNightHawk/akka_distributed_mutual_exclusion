@@ -1,0 +1,22 @@
+# Duplicated external request on crashing node
+# WARNING: this scenario violates the assignment assumption that no crash request is made while performing recovery operations, so it may cause program crash
+
+delay 2000
+
+request 1, 1
+delay 100
+crash 1
+crash 1
+request 1
+delay 100
+request 1
+delay 100
+crash 1
+request 1
+crash 1
+delay 100
+request 1
+
+
+delay 5000
+exit

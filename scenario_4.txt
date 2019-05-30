@@ -9,6 +9,7 @@ connect 4 5
 inject 2
 
 # Request received during non-holder node crash
+# Unexpected privilege received by 1 from 2 due to crash
 
 delay 2000
 

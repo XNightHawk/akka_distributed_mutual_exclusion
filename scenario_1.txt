@@ -8,6 +8,8 @@ connect 4 6
 connect 4 5
 inject 2
 
+# Simultaneous requests
+
 delay 2000
 
 request 1

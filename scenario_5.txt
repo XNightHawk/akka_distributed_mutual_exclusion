@@ -1,0 +1,13 @@
+# Standard reuest flux
+
+delay 2000
+
+request 1, 4, 6
+delay 100
+request 2
+delay 100
+request 0
+
+
+delay 10000
+exit

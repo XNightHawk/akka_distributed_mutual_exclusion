@@ -9,6 +9,7 @@ connect 4 5
 inject 2
 
 # Request received during non-holder node crash
+# Request received during recovery operations
 
 delay 2000
 
