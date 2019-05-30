@@ -1,0 +1,18 @@
+#GRAPH
+#
+#	0---1---2 <--inject
+#          / \   
+#         3   4  
+#            / \ 
+#           5   6
+
+
+
+create 7
+connect 0 1
+connect 1 2
+connect 2 3
+connect 2 4
+connect 4 6
+connect 4 5
+inject 2
