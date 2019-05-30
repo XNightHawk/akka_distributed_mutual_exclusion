@@ -1,3 +1,13 @@
+# Graph creation
+create 7
+connect 0 1
+connect 1 2
+connect 2 3
+connect 2 4
+connect 4 6
+connect 4 5
+inject 2
+
 # Duplicated external request on crashing node
 # WARNING: this scenario violates the assignment assumption that no crash request is made while performing recovery operations, so it may cause program crash
 
