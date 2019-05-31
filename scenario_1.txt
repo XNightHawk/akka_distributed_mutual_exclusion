@@ -16,5 +16,5 @@ request 1
 request 2
 request 3
 
-delay 5000
+delay 7000
 exit

@@ -1,3 +1,18 @@
+/**
+ *
+ *   _|_|_|    _|      _|  _|      _|
+ *   _|    _|  _|_|  _|_|    _|  _|
+ *   _|    _|  _|  _|  _|      _|
+ *   _|    _|  _|      _|    _|  _|
+ *   _|_|_|    _|      _|  _|      _|
+ *
+ *   DMX: A distributed protocol for mutual exclusion
+ *
+ *   Authors: Willi Menapace      <willi.menapace@studenti.unitn.it>
+ *            Daniele Giuliani    <daniele.giuliani@studenti.unitn.it>
+ *
+ **/
+
 package it.distr;
 
 import akka.actor.ActorSystem;

@@ -1,3 +1,18 @@
+/**
+ *
+ *   _|_|_|    _|      _|  _|      _|
+ *   _|    _|  _|_|  _|_|    _|  _|
+ *   _|    _|  _|  _|  _|      _|
+ *   _|    _|  _|      _|    _|  _|
+ *   _|_|_|    _|      _|  _|      _|
+ *
+ *   DMX: A distributed protocol for mutual exclusion
+ *
+ *   Authors: Willi Menapace      <willi.menapace@studenti.unitn.it>
+ *            Daniele Giuliani    <daniele.giuliani@studenti.unitn.it>
+ *
+ **/
+
 package it.distr.utils;
 
 import akka.actor.ActorRef;
@@ -42,6 +57,8 @@ public class CommandParser {
         inputSource = new Scanner(System.in);
         nodes = new ArrayList<ActorRef>();
         system = s;
+
+        System.out.println("# Enter a command (try 'help' or 'source scenario_1.txt')");
     }
 
     /*
