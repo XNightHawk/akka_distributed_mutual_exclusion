@@ -271,7 +271,7 @@ public class CommandParser {
         nodes.get(alpha).tell(new Node.NeighborInit(beta, nodes.get(beta)), null);
         nodes.get(beta).tell(new Node.NeighborInit(alpha, nodes.get(alpha)), null);
 
-        System.out.println("Nodes " + alpha + " and " + beta + " are now neighbor");
+        System.out.println("Nodes " + alpha + " and " + beta + " are now neighbors");
     }
 
     private void execInject(String a) {
